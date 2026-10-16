@@ -1,0 +1,8 @@
+build/
+vcpkg_installed/
+.env
+compile_commands.json
+.cache/
+.idea/
+.vscode/
+.DS_Store

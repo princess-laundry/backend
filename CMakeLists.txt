@@ -1,0 +1,40 @@
+cmake_minimum_required(VERSION 3.21)
+
+project(posture_backend VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+include(CTest)
+
+find_package(Drogon CONFIG REQUIRED)
+
+add_library(posture_core STATIC
+    src/config/AppConfig.cc
+)
+target_include_directories(posture_core PUBLIC src)
+target_compile_options(posture_core PRIVATE -Wall -Wextra -Wpedantic)
+
+# Controllers register themselves through static initializers, so they are
+# compiled into the executable directly instead of the static library where
+# the linker would drop them.
+add_executable(posture_server
+    src/main.cc
+    src/controllers/HealthController.cc
+)
+target_link_libraries(posture_server PRIVATE posture_core Drogon::Drogon)
+target_compile_definitions(posture_server PRIVATE POSTURE_VERSION="${PROJECT_VERSION}")
+target_compile_options(posture_server PRIVATE -Wall -Wextra -Wpedantic)
+
+if(BUILD_TESTING)
+    find_package(GTest CONFIG REQUIRED)
+    include(GoogleTest)
+
+    add_executable(posture_tests
+        tests/AppConfigTest.cc
+    )
+    target_link_libraries(posture_tests PRIVATE posture_core GTest::gtest_main)
+    gtest_discover_tests(posture_tests)
+endif()

@@ -1,0 +1,16 @@
+{
+  "name": "posture-backend",
+  "version": "0.1.0",
+  "builtin-baseline": "9e593bb18ea69cc5095e012465dcd675a822ed0d",
+  "dependencies": [
+    {
+      "name": "drogon",
+      "default-features": false,
+      "features": ["orm", "postgres"]
+    },
+    "gtest"
+  ],
+  "overrides": [
+    { "name": "drogon", "version": "1.9.13" }
+  ]
+}

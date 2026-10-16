@@ -1,0 +1,7 @@
+.git
+.env
+build
+vcpkg_installed
+.cache
+.idea
+.vscode

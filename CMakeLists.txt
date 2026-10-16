@@ -10,11 +10,19 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include(CTest)
 
 find_package(Drogon CONFIG REQUIRED)
+find_package(jsoncpp CONFIG REQUIRED)
+find_package(jwt-cpp CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 add_library(posture_core STATIC
+    src/auth/DeviceId.cc
+    src/auth/TokenService.cc
     src/config/AppConfig.cc
 )
 target_include_directories(posture_core PUBLIC src)
+target_link_libraries(posture_core
+    PRIVATE jwt-cpp::jwt-cpp JsonCpp::JsonCpp OpenSSL::Crypto
+)
 target_compile_options(posture_core PRIVATE -Wall -Wextra -Wpedantic)
 
 # Controllers register themselves through static initializers, so they are
@@ -22,7 +30,11 @@ target_compile_options(posture_core PRIVATE -Wall -Wextra -Wpedantic)
 # the linker would drop them.
 add_executable(posture_server
     src/main.cc
+    src/controllers/AuthController.cc
+    src/controllers/ConfigController.cc
     src/controllers/HealthController.cc
+    src/filters/JwtFilter.cc
+    src/http/ErrorResponse.cc
 )
 target_link_libraries(posture_server PRIVATE posture_core Drogon::Drogon)
 target_compile_definitions(posture_server PRIVATE POSTURE_VERSION="${PROJECT_VERSION}")
@@ -34,7 +46,13 @@ if(BUILD_TESTING)
 
     add_executable(posture_tests
         tests/AppConfigTest.cc
+        tests/DeviceIdTest.cc
+        tests/TokenServiceTest.cc
     )
-    target_link_libraries(posture_tests PRIVATE posture_core GTest::gtest_main)
+    # jwt-cpp is linked directly so tests can craft tokens the service would
+    # never issue (other keys, algorithms or missing claims).
+    target_link_libraries(posture_tests
+        PRIVATE posture_core jwt-cpp::jwt-cpp JsonCpp::JsonCpp GTest::gtest_main
+    )
     gtest_discover_tests(posture_tests)
 endif()

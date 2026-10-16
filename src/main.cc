@@ -1,9 +1,14 @@
 #include <drogon/drogon.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 
+#include "auth/TokenService.h"
 #include "config/AppConfig.h"
+#include "controllers/AuthController.h"
+#include "filters/JwtFilter.h"
 
 namespace
 {
@@ -59,11 +64,20 @@ int main()
              << config.port << ", database " << config.db.host << ':'
              << config.db.port << '/' << config.db.name;
 
+    auto tokens = std::make_shared<const posture::TokenService>(
+        config.jwt.secret, std::chrono::seconds(config.jwt.ttlSec));
+
     drogon::app()
         .setLogLevel(toLogLevel(config.logLevel))
         .addListener(config.listenAddress, config.port)
         .setThreadNum(config.threads)
+        // jsoncpp defaults to 17 significant digits, which prints 0.8 as
+        // 0.80000000000000004. With 15 (DBL_DIG) any value read from text
+        // with up to 15 significant digits prints back unchanged.
+        .setFloatPrecisionInJson(15, "significant")
         .addDbClient(toPostgresConfig(config.db))
+        .registerFilter(std::make_shared<posture::JwtFilter>(tokens))
+        .registerController(std::make_shared<posture::AuthController>(tokens))
         .run();
 
     return EXIT_SUCCESS;

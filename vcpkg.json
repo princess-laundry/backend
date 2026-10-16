@@ -8,7 +8,10 @@
       "default-features": false,
       "features": ["orm", "postgres"]
     },
-    "gtest"
+    "gtest",
+    "jsoncpp",
+    "jwt-cpp",
+    "openssl"
   ],
   "overrides": [
     { "name": "drogon", "version": "1.9.13" }

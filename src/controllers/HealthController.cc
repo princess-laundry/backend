@@ -2,6 +2,8 @@
 
 #include <drogon/drogon.h>
 
+#include "http/ErrorResponse.h"
+
 #ifndef POSTURE_VERSION
 #define POSTURE_VERSION "dev"
 #endif
@@ -29,13 +31,9 @@ void HealthController::check(
         },
         [respond](const drogon::orm::DrogonDbException &e) {
             LOG_ERROR << "health check query failed: " << e.base().what();
-
-            Json::Value body;
-            body["error"]["code"] = "DATABASE_UNAVAILABLE";
-            body["error"]["message"] = "database is not reachable";
-            auto resp = drogon::HttpResponse::newHttpJsonResponse(body);
-            resp->setStatusCode(drogon::k503ServiceUnavailable);
-            (*respond)(resp);
+            (*respond)(makeErrorResponse(drogon::k503ServiceUnavailable,
+                                         "DATABASE_UNAVAILABLE",
+                                         "database is not reachable"));
         });
 }
 

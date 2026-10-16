@@ -12,6 +12,9 @@ namespace posture
 namespace
 {
 
+constexpr std::uint64_t kMinJwtTtlSec = 60;
+constexpr std::uint64_t kMaxJwtTtlSec = 30 * 24 * 60 * 60;
+
 std::uint64_t parseUnsigned(const std::string &key,
                             const std::string &value,
                             std::uint64_t max)
@@ -110,6 +113,29 @@ AppConfig AppConfig::fromLookup(const Lookup &lookup)
         throw std::invalid_argument("DB_PASSWORD is required");
     }
     config.db.password = *password;
+
+    if (auto v = lookup("JWT_TTL_SEC"))
+    {
+        config.jwt.ttlSec = parseUnsigned("JWT_TTL_SEC", *v, kMaxJwtTtlSec);
+        if (config.jwt.ttlSec < kMinJwtTtlSec)
+        {
+            throw std::invalid_argument("JWT_TTL_SEC must be at least " +
+                                        std::to_string(kMinJwtTtlSec));
+        }
+    }
+
+    auto secret = lookup("JWT_SECRET");
+    if (!secret || secret->empty())
+    {
+        throw std::invalid_argument("JWT_SECRET is required");
+    }
+    if (secret->size() < JwtConfig::kMinSecretLength)
+    {
+        throw std::invalid_argument(
+            "JWT_SECRET must be at least " +
+            std::to_string(JwtConfig::kMinSecretLength) + " characters");
+    }
+    config.jwt.secret = *secret;
 
     return config;
 }

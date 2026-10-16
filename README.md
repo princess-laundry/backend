@@ -10,7 +10,7 @@ Stack: C++17, Drogon 1.9.13, PostgreSQL 16, Nginx, CMake with vcpkg, GoogleTest,
 cp .env.example .env
 ```
 
-Set `POSTGRES_PASSWORD` in `.env`, then:
+Set `POSTGRES_PASSWORD` and `JWT_SECRET` in `.env` (generate the secret with `openssl rand -hex 32`), then:
 
 ```bash
 docker compose up --build
@@ -47,7 +47,7 @@ docker compose up -d db migrate
 ```
 
 ```bash
-DB_HOST=localhost DB_PASSWORD=<password from .env> ./build/dev/posture_server
+DB_HOST=localhost DB_PASSWORD=<password from .env> JWT_SECRET=<secret from .env> ./build/dev/posture_server
 ```
 
 ## Configuration
@@ -66,6 +66,8 @@ The server reads everything from environment variables. Secrets are never stored
 | `DB_USER` | `posture` | |
 | `DB_PASSWORD` | | Required |
 | `DB_POOL_SIZE` | `4` | Connections in the pool |
+| `JWT_SECRET` | | Required, at least 32 characters. HS256 signing key |
+| `JWT_TTL_SEC` | `604800` | Token lifetime in seconds, 60 to 2592000 |
 
 ## Database migrations
 
@@ -88,8 +90,11 @@ docker compose down -v
 | Path | Contents |
 | --- | --- |
 | `src/main.cc` | Startup, listener and database pool setup |
+| `src/auth/` | Device id hashing and JWT issue and verify |
 | `src/config/` | Environment based configuration |
 | `src/controllers/` | HTTP controllers |
+| `src/filters/` | Drogon filters (JWT check for protected routes) |
+| `src/http/` | Shared response helpers |
 | `tests/` | GoogleTest unit tests |
 | `migrations/` | Versioned SQL schema |
 | `scripts/migrate.sh` | Migration runner used by the `migrate` service |
@@ -100,6 +105,36 @@ docker compose down -v
 
 All endpoints are under `/api/v1`. Requests and responses are UTF-8 JSON, timestamps are ISO 8601 with offset (`+09:00`), and errors use the HTTP status code with a body of the form `{"error":{"code":"...","message":"..."}}`.
 
-| Method | Path | Status |
-| --- | --- | --- |
-| GET | `/api/v1/health` | Implemented |
+| Method | Path | Auth | Status |
+| --- | --- | --- | --- |
+| GET | `/api/v1/health` | None | Implemented |
+| POST | `/api/v1/auth/device` | None | Implemented |
+| GET | `/api/v1/config` | Bearer | Implemented |
+
+### Authentication
+
+The app generates a random UUID on first install and keeps it on the device. It exchanges that id for an access token:
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/auth/device -H 'Content-Type: application/json' -d '{"device_id":"550e8400-e29b-41d4-a716-446655440000"}'
+```
+
+```json
+{"expires_in":604800,"token":"eyJ...","token_type":"Bearer","user_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7"}
+```
+
+The server stores only the SHA-256 hash of the lowercased id in `users.device_hash`, never the id itself. The first call creates the user and later calls with the same id return the same `user_id` and update `last_seen_at`. The token is an HS256 JWT whose subject is the user id, signed with `JWT_SECRET` and valid for `JWT_TTL_SEC` seconds. When it expires the app calls this endpoint again with the same id. A body without a UUID `device_id` gets 400 `INVALID_REQUEST`.
+
+Protected endpoints need the header `Authorization: Bearer <token>`. A missing, malformed, tampered or expired token gets 401 with code `UNAUTHORIZED` and a `WWW-Authenticate: Bearer` header.
+
+### Threshold config
+
+```bash
+curl -s http://localhost:8080/api/v1/config -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{"analysis_fps":5,"stable_sec":2.0,"t1_ratio":0.25,"t2_angle":20.0,"version":1}
+```
+
+Returns the row of `threshold_configs` with `is_active = true`. Migration `V2__seed_threshold_config.sql` seeds version 1. To roll out new thresholds, add a migration that inserts the next version and moves `is_active` to it in the same transaction; sessions record which version they were classified with in `threshold_version`. If no row is active the endpoint returns 404 `CONFIG_NOT_FOUND`.

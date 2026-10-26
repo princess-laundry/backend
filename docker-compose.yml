@@ -59,16 +59,27 @@ services:
       JWT_TTL_SEC: ${JWT_TTL_SEC:-604800}
       TZ: Asia/Seoul
 
+  # Swagger UI for docs/openapi.yaml, served by nginx under /docs/.
+  docs:
+    image: swaggerapi/swagger-ui:v5.33.1
+    restart: unless-stopped
+    environment:
+      BASE_URL: /docs
+      URL: /openapi.yaml
+
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
     depends_on:
       server:
         condition: service_healthy
+      docs:
+        condition: service_started
     ports:
       - "${HTTP_PORT:-8080}:80"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docs/openapi.yaml:/srv/docs/openapi.yaml:ro
 
 volumes:
   db-data:

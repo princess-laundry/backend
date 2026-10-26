@@ -18,10 +18,15 @@ add_library(posture_core STATIC
     src/auth/DeviceId.cc
     src/auth/TokenService.cc
     src/config/AppConfig.cc
+    src/sessions/SessionUpload.cc
+    src/stats/DailyStats.cc
+    src/time/IsoTime.cc
 )
 target_include_directories(posture_core PUBLIC src)
+# SessionUpload.h takes a Json::Value, so JsonCpp is part of the interface.
 target_link_libraries(posture_core
-    PRIVATE jwt-cpp::jwt-cpp JsonCpp::JsonCpp OpenSSL::Crypto
+    PUBLIC JsonCpp::JsonCpp
+    PRIVATE jwt-cpp::jwt-cpp OpenSSL::Crypto
 )
 target_compile_options(posture_core PRIVATE -Wall -Wextra -Wpedantic)
 
@@ -33,6 +38,8 @@ add_executable(posture_server
     src/controllers/AuthController.cc
     src/controllers/ConfigController.cc
     src/controllers/HealthController.cc
+    src/controllers/SessionController.cc
+    src/controllers/StatsController.cc
     src/filters/JwtFilter.cc
     src/http/ErrorResponse.cc
 )
@@ -46,7 +53,10 @@ if(BUILD_TESTING)
 
     add_executable(posture_tests
         tests/AppConfigTest.cc
+        tests/DailyStatsTest.cc
         tests/DeviceIdTest.cc
+        tests/IsoTimeTest.cc
+        tests/SessionUploadTest.cc
         tests/TokenServiceTest.cc
     )
     # jwt-cpp is linked directly so tests can craft tokens the service would

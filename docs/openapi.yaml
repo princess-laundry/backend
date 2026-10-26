@@ -1,0 +1,721 @@
+openapi: 3.0.3
+
+info:
+  title: Posture Backend API
+  version: 0.1.0
+  description: |
+    REST API used by the Android posture tracking app. The app does all pose
+    estimation on the device and only sends numeric session summaries; the
+    server never receives video, images or landmarks.
+
+    Conventions:
+
+    1. Requests and responses are UTF-8 JSON. Requests with a body must send
+       `Content-Type: application/json`.
+    2. Timestamps are ISO 8601 with a UTC offset. The server always answers in
+       Seoul time with `+09:00`. Dates are `YYYY-MM-DD` Seoul calendar days.
+    3. Errors use the HTTP status code plus a body of the form
+       `{"error":{"code":"...","message":"..."}}`. Apps should branch on
+       `code` and treat `message` as a human readable hint only.
+    4. Protected endpoints need `Authorization: Bearer <token>`, where the
+       token comes from `POST /auth/device`. When a token expires, call that
+       endpoint again with the same device id.
+
+servers:
+  - url: /api/v1
+    description: Same host as this documentation page
+  - url: http://localhost:8080/api/v1
+    description: Local Docker Compose stack
+
+tags:
+  - name: System
+    description: Liveness check for monitoring and deploys.
+  - name: Auth
+    description: Device sign in. No accounts or passwords.
+  - name: Config
+    description: Classification thresholds the app runs with.
+  - name: Sessions
+    description: Upload and browse finished study sessions.
+  - name: Stats
+    description: Per day totals for the report screen.
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Check that the server and database are up
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: The server can reach the database.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          $ref: "#/components/responses/DatabaseUnavailable"
+
+  /auth/device:
+    post:
+      tags: [Auth]
+      summary: Exchange the install id for an access token
+      description: |
+        The app generates a random UUID on first install and keeps it on the
+        device. The first call creates the user; later calls with the same id
+        (case does not matter) return the same `user_id`. Only a SHA-256 hash
+        of the id is stored.
+      operationId: authenticateDevice
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceAuthRequest"
+      responses:
+        "200":
+          description: A fresh access token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceAuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/DatabaseUnavailable"
+
+  /config:
+    get:
+      tags: [Config]
+      summary: Get the active threshold config
+      description: |
+        The app fetches this on start and classifies postures with these
+        values. Upload the returned `version` as `threshold_version` with each
+        session.
+      operationId: getConfig
+      responses:
+        "200":
+          description: The active config.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThresholdConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No config is active (`CONFIG_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: CONFIG_NOT_FOUND
+                  message: no active threshold config
+        "503":
+          $ref: "#/components/responses/DatabaseUnavailable"
+
+  /sessions:
+    post:
+      tags: [Sessions]
+      summary: Upload a finished study session
+      description: |
+        Saves the summary and its posture segments and adds the session to the
+        daily stats of the Seoul day it started on, all in one transaction.
+
+        Uploads are idempotent per user and `client_session_id`: sending the
+        same session again (for example after a timeout) changes nothing and
+        answers 200 with the stored `session_id`, so retrying is always safe.
+
+        Validation rules:
+
+        1. `ended_at` must not be before `started_at`; a session lasts at most
+           86400 seconds and starts no earlier than 2000-01-01.
+        2. `study_sec + away_sec` and `normal_sec + fhp_sec + lean_sec` may
+           each exceed the session length by at most one second per term, to
+           allow for rounding.
+        3. Segments are ordered by time, do not overlap, have
+           `start_ms <= end_ms`, and end no later than the session.
+        4. `threshold_version` must be a version the server knows.
+        5. Unknown fields are ignored. The request body is limited to 1 MB.
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionUploadRequest"
+      responses:
+        "200":
+          description: This session was uploaded before; nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionUploadResponse"
+        "201":
+          description: The session was stored.
+          headers:
+            Location:
+              description: Path of the new session, such as `/api/v1/sessions/122`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionUploadResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: |
+            The same session was deleted while this upload was running
+            (`CONFLICT`). Retry the request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/DatabaseUnavailable"
+
+    get:
+      tags: [Sessions]
+      summary: List the sessions of one day
+      description: Sessions of the caller that started on the given Seoul day, oldest first.
+      operationId: listSessions
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2026-10-16"
+      responses:
+        "200":
+          description: The sessions of that day, possibly none.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/DatabaseUnavailable"
+
+  /sessions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      tags: [Sessions]
+      summary: Get one session with its segments
+      operationId: getSession
+      responses:
+        "200":
+          description: The session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/SessionNotFound"
+        "503":
+          $ref: "#/components/responses/DatabaseUnavailable"
+    delete:
+      tags: [Sessions]
+      summary: Delete a session
+      description: Removes the session and its segments and subtracts it from the daily stats.
+      operationId: deleteSession
+      responses:
+        "204":
+          description: Deleted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/SessionNotFound"
+        "503":
+          $ref: "#/components/responses/DatabaseUnavailable"
+
+  /stats/daily:
+    get:
+      tags: [Stats]
+      summary: Get daily totals for a date range
+      description: |
+        One entry per Seoul day in the inclusive range that has at least one
+        session. Days without sessions are left out, so fill gaps on the app
+        side. The range may cover at most 366 days.
+      operationId: getDailyStats
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2026-10-01"
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2026-10-31"
+      responses:
+        "200":
+          description: Daily totals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyStatsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/DatabaseUnavailable"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token from `POST /auth/device`, valid for `expires_in` seconds.
+
+  parameters:
+    SessionId:
+      name: id
+      in: path
+      required: true
+      description: The `session_id` returned by the upload. A positive integer without leading zeros.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+      example: 122
+
+  responses:
+    BadRequest:
+      description: The request is malformed or fails validation (`INVALID_REQUEST`). The message names the offending field.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: INVALID_REQUEST
+              message: summary.study_sec must be an integer
+    Unauthorized:
+      description: |
+        The bearer token is missing, malformed, tampered with or expired, or
+        its user no longer exists (`UNAUTHORIZED`). Get a new token from
+        `POST /auth/device`.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Bearer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: UNAUTHORIZED
+              message: token has expired
+    SessionNotFound:
+      description: No session with this id belongs to the caller (`SESSION_NOT_FOUND`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: SESSION_NOT_FOUND
+              message: session not found
+    InternalError:
+      description: Unexpected server failure (`INTERNAL_ERROR`). Retry later.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    DatabaseUnavailable:
+      description: The database cannot be reached (`DATABASE_UNAVAILABLE`). Retry with backoff.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: DATABASE_UNAVAILABLE
+              message: database is not reachable
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - INVALID_REQUEST
+                - UNAUTHORIZED
+                - SESSION_NOT_FOUND
+                - CONFIG_NOT_FOUND
+                - CONFLICT
+                - INTERNAL_ERROR
+                - DATABASE_UNAVAILABLE
+            message:
+              type: string
+
+    Health:
+      type: object
+      required: [status, version, database]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+          example: 0.1.0
+        database:
+          type: string
+          enum: [ok]
+
+    DeviceAuthRequest:
+      type: object
+      required: [device_id]
+      properties:
+        device_id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+
+    DeviceAuthResponse:
+      type: object
+      required: [token, token_type, expires_in, user_id]
+      properties:
+        token:
+          type: string
+          description: HS256 JWT whose subject is `user_id`.
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          description: Seconds until the token expires.
+          example: 604800
+        user_id:
+          type: string
+          format: uuid
+
+    ThresholdConfig:
+      type: object
+      required: [version, t1_ratio, t2_angle, stable_sec, analysis_fps]
+      properties:
+        version:
+          type: integer
+          example: 1
+        t1_ratio:
+          type: number
+          description: Forward head ratio above which a frame counts as FHP.
+          example: 0.25
+        t2_angle:
+          type: number
+          description: Torso lean angle in degrees above which a frame counts as LEAN.
+          example: 20.0
+        stable_sec:
+          type: number
+          description: How long a state must hold before it is confirmed.
+          example: 2.0
+        analysis_fps:
+          type: integer
+          description: Frames per second the app should analyse.
+          example: 5
+
+    PostureState:
+      type: string
+      description: |
+        `NORMAL` upright, `FHP` forward head posture, `LEAN` torso leaning
+        forward, `AWAY` no person detected.
+      enum: [NORMAL, FHP, LEAN, AWAY]
+
+    SessionSummary:
+      type: object
+      required: [study_sec, away_sec, normal_sec, fhp_sec, lean_sec, alert_count]
+      properties:
+        study_sec:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+          description: Time at the desk.
+        away_sec:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+          description: Time away from the desk.
+        normal_sec:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        fhp_sec:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        lean_sec:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        alert_count:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+          description: Posture alerts the app raised during the session.
+
+    SegmentInput:
+      type: object
+      required: [state, start_ms, end_ms]
+      description: A stretch of one posture state, in milliseconds from the session start.
+      properties:
+        state:
+          $ref: "#/components/schemas/PostureState"
+        start_ms:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        end_ms:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        avg_ratio:
+          type: number
+          nullable: true
+          description: Average forward head ratio over the segment.
+        avg_angle:
+          type: number
+          nullable: true
+          description: Average torso angle in degrees over the segment.
+
+    Segment:
+      allOf:
+        - $ref: "#/components/schemas/SegmentInput"
+        - type: object
+          required: [avg_ratio, avg_angle]
+
+    SessionUploadRequest:
+      type: object
+      required:
+        - client_session_id
+        - started_at
+        - ended_at
+        - threshold_version
+        - app_version
+        - summary
+        - segments
+      properties:
+        client_session_id:
+          type: string
+          format: uuid
+          description: Generated by the app per session; makes retries safe.
+        started_at:
+          type: string
+          format: date-time
+          description: Seconds may be omitted, as java.time does for whole minutes.
+        ended_at:
+          type: string
+          format: date-time
+        threshold_version:
+          type: integer
+          minimum: 1
+          description: The `version` from `GET /config` the session was classified with.
+        app_version:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Printable ASCII only.
+        summary:
+          $ref: "#/components/schemas/SessionSummary"
+        segments:
+          type: array
+          description: May be empty.
+          items:
+            $ref: "#/components/schemas/SegmentInput"
+      example:
+        client_session_id: 3f2504e0-4f89-11d3-9a0c-0305e82c3301
+        started_at: "2026-10-16T21:00:00+09:00"
+        ended_at: "2026-10-16T22:00:00+09:00"
+        threshold_version: 1
+        app_version: 1.0.0
+        summary:
+          study_sec: 3000
+          away_sec: 600
+          normal_sec: 2000
+          fhp_sec: 700
+          lean_sec: 300
+          alert_count: 4
+        segments:
+          - state: NORMAL
+            start_ms: 0
+            end_ms: 2000000
+            avg_ratio: 0.12
+            avg_angle: 8.5
+          - state: FHP
+            start_ms: 2000000
+            end_ms: 2700000
+            avg_ratio: 0.31
+            avg_angle: 24.0
+          - state: LEAN
+            start_ms: 2700000
+            end_ms: 3000000
+          - state: AWAY
+            start_ms: 3000000
+            end_ms: 3600000
+
+    DaySummary:
+      type: object
+      required: [date, study_sec, normal_ratio]
+      description: Totals of the day the session was counted on, after this upload.
+      properties:
+        date:
+          type: string
+          format: date
+        study_sec:
+          type: integer
+        normal_ratio:
+          $ref: "#/components/schemas/NormalRatio"
+
+    NormalRatio:
+      type: number
+      nullable: true
+      minimum: 0
+      maximum: 1
+      description: |
+        `normal_sec / (normal_sec + fhp_sec + lean_sec)`. AWAY time is not
+        counted. `null` when no posture time was recorded.
+
+    SessionUploadResponse:
+      type: object
+      required: [session_id, daily]
+      properties:
+        session_id:
+          type: integer
+          format: int64
+        daily:
+          $ref: "#/components/schemas/DaySummary"
+      example:
+        session_id: 122
+        daily:
+          date: "2026-10-16"
+          study_sec: 3000
+          normal_ratio: 0.666666666666667
+
+    Session:
+      type: object
+      required:
+        - session_id
+        - client_session_id
+        - started_at
+        - ended_at
+        - threshold_version
+        - app_version
+        - summary
+      properties:
+        session_id:
+          type: integer
+          format: int64
+        client_session_id:
+          type: string
+          format: uuid
+        started_at:
+          type: string
+          format: date-time
+          example: "2026-10-16T21:00:00+09:00"
+        ended_at:
+          type: string
+          format: date-time
+          example: "2026-10-16T22:00:00+09:00"
+        threshold_version:
+          type: integer
+          nullable: true
+        app_version:
+          type: string
+          nullable: true
+        summary:
+          $ref: "#/components/schemas/SessionSummary"
+
+    SessionDetail:
+      allOf:
+        - $ref: "#/components/schemas/Session"
+        - type: object
+          required: [segments]
+          properties:
+            segments:
+              type: array
+              items:
+                $ref: "#/components/schemas/Segment"
+
+    SessionList:
+      type: object
+      required: [date, sessions]
+      properties:
+        date:
+          type: string
+          format: date
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+
+    DailyStat:
+      type: object
+      required: [date, study_sec, normal_sec, fhp_sec, lean_sec, session_count, normal_ratio]
+      properties:
+        date:
+          type: string
+          format: date
+        study_sec:
+          type: integer
+        normal_sec:
+          type: integer
+        fhp_sec:
+          type: integer
+        lean_sec:
+          type: integer
+        session_count:
+          type: integer
+          minimum: 1
+        normal_ratio:
+          $ref: "#/components/schemas/NormalRatio"
+
+    DailyStatsResponse:
+      type: object
+      required: [from, to, days]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/DailyStat"

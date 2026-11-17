@@ -3,6 +3,7 @@
 #include <drogon/drogon.h>
 
 #include <exception>
+#include <string>
 #include <utility>
 
 #include "auth/DeviceId.h"
@@ -20,9 +21,22 @@ void AuthController::device(
     const drogon::HttpRequestPtr &req,
     std::function<void(const drogon::HttpResponsePtr &)> &&callback)
 {
+    // The Android client sends the install id as "device_uuid"; both names
+    // are accepted.
     const auto json = req->getJsonObject();
-    if (!json || !json->isObject() || !(*json)["device_id"].isString() ||
-        !isUuid((*json)["device_id"].asString()))
+    std::string deviceId;
+    if (json && json->isObject())
+    {
+        for (const char *key : {"device_id", "device_uuid"})
+        {
+            if ((*json)[key].isString())
+            {
+                deviceId = (*json)[key].asString();
+                break;
+            }
+        }
+    }
+    if (!isUuid(deviceId))
     {
         callback(makeErrorResponse(drogon::k400BadRequest,
                                    "INVALID_REQUEST",
@@ -30,7 +44,7 @@ void AuthController::device(
                                    "device_id"));
         return;
     }
-    const auto deviceHash = hashDeviceId((*json)["device_id"].asString());
+    const auto deviceHash = hashDeviceId(deviceId);
 
     auto respond =
         std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
@@ -60,6 +74,8 @@ void AuthController::device(
 
             Json::Value body;
             body["token"] = token;
+            // Same value under the name the Android client reads.
+            body["access_token"] = token;
             body["token_type"] = "Bearer";
             body["expires_in"] =
                 static_cast<Json::Int64>(tokens->ttl().count());

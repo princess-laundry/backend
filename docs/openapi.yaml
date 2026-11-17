@@ -38,6 +38,8 @@ tags:
     description: Upload and browse finished study sessions.
   - name: Stats
     description: Per day totals for the report screen.
+  - name: Users
+    description: The caller's own account.
 
 security:
   - bearerAuth: []
@@ -250,6 +252,24 @@ paths:
         "503":
           $ref: "#/components/responses/DatabaseUnavailable"
 
+  /users/me:
+    delete:
+      tags: [Users]
+      summary: Delete the caller and all of their data
+      description: |
+        Removes the user together with every session, segment, daily stat and
+        setting they own. Answers 204 even if the user was already deleted.
+        The token stops working afterwards; a new `POST /auth/device` call
+        creates a fresh, empty user.
+      operationId: deleteMe
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/DatabaseUnavailable"
+
   /stats/daily:
     get:
       tags: [Stats]
@@ -402,20 +422,26 @@ components:
 
     DeviceAuthRequest:
       type: object
-      required: [device_id]
+      description: Send the install id as `device_id` or `device_uuid` (the Android client uses the latter).
       properties:
         device_id:
           type: string
           format: uuid
           example: 550e8400-e29b-41d4-a716-446655440000
+        device_uuid:
+          type: string
+          format: uuid
 
     DeviceAuthResponse:
       type: object
-      required: [token, token_type, expires_in, user_id]
+      required: [token, access_token, token_type, expires_in, user_id]
       properties:
         token:
           type: string
           description: HS256 JWT whose subject is `user_id`.
+        access_token:
+          type: string
+          description: Same value as `token`, under the name the Android client reads.
         token_type:
           type: string
           enum: [Bearer]
@@ -437,7 +463,7 @@ components:
         t1_ratio:
           type: number
           description: Forward head ratio above which a frame counts as FHP.
-          example: 0.25
+          example: 0.35
         t2_angle:
           type: number
           description: Torso lean angle in degrees above which a frame counts as LEAN.

@@ -40,6 +40,7 @@ add_executable(posture_server
     src/controllers/HealthController.cc
     src/controllers/SessionController.cc
     src/controllers/StatsController.cc
+    src/controllers/UserController.cc
     src/filters/JwtFilter.cc
     src/http/ErrorResponse.cc
 )

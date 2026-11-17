@@ -4,6 +4,8 @@ REST backend for the side view posture tracking study app. The Android app does 
 
 Stack: C++17, Drogon 1.9.13, PostgreSQL 16, Nginx, CMake with vcpkg, GoogleTest, Docker Compose.
 
+Android developers who only need a server to test against: follow the Korean step by step guide in [docs/local-server-guide.md](docs/local-server-guide.md).
+
 ## Running with Docker
 
 ```bash
@@ -55,7 +57,7 @@ docker compose up -d db migrate
 ```
 
 ```bash
-DB_HOST=localhost DB_PASSWORD=<password from .env> JWT_SECRET=<secret from .env> ./build/dev/posture_server
+DB_HOST=localhost DB_PORT=5433 DB_PASSWORD=<password from .env> JWT_SECRET=<secret from .env> ./build/dev/posture_server
 ```
 
 ## Configuration
@@ -143,6 +145,7 @@ All endpoints are under `/api/v1`. Requests and responses are UTF-8 JSON, timest
 | GET | `/api/v1/sessions/{id}` | Bearer | Implemented |
 | DELETE | `/api/v1/sessions/{id}` | Bearer | Implemented |
 | GET | `/api/v1/stats/daily?from=YYYY-MM-DD&to=YYYY-MM-DD` | Bearer | Implemented |
+| DELETE | `/api/v1/users/me` | Bearer | Implemented |
 
 ### Authentication
 
@@ -153,10 +156,10 @@ curl -s -X POST http://localhost:8080/api/v1/auth/device -H 'Content-Type: appli
 ```
 
 ```json
-{"expires_in":604800,"token":"eyJ...","token_type":"Bearer","user_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7"}
+{"access_token":"eyJ...","expires_in":604800,"token":"eyJ...","token_type":"Bearer","user_id":"7c9e6679-7425-40de-944b-e07fc1f90ae7"}
 ```
 
-The server stores only the SHA-256 hash of the lowercased id in `users.device_hash`, never the id itself. The first call creates the user and later calls with the same id return the same `user_id` and update `last_seen_at`. The token is an HS256 JWT whose subject is the user id, signed with `JWT_SECRET` and valid for `JWT_TTL_SEC` seconds. When it expires the app calls this endpoint again with the same id. A body without a UUID `device_id` gets 400 `INVALID_REQUEST`.
+The server stores only the SHA-256 hash of the lowercased id in `users.device_hash`, never the id itself. The first call creates the user and later calls with the same id return the same `user_id` and update `last_seen_at`. The token is an HS256 JWT whose subject is the user id, signed with `JWT_SECRET` and valid for `JWT_TTL_SEC` seconds. When it expires the app calls this endpoint again with the same id. The id may also be sent as `device_uuid`, and `access_token` repeats `token`; both names exist for the Android client. A body without a UUID id gets 400 `INVALID_REQUEST`.
 
 Protected endpoints need the header `Authorization: Bearer <token>`. A missing, malformed, tampered or expired token gets 401 with code `UNAUTHORIZED` and a `WWW-Authenticate: Bearer` header.
 
@@ -167,7 +170,7 @@ curl -s http://localhost:8080/api/v1/config -H "Authorization: Bearer $TOKEN"
 ```
 
 ```json
-{"analysis_fps":5,"stable_sec":2.0,"t1_ratio":0.25,"t2_angle":20.0,"version":1}
+{"analysis_fps":5,"stable_sec":2.0,"t1_ratio":0.35,"t2_angle":20.0,"version":1}
 ```
 
 Returns the row of `threshold_configs` with `is_active = true`. Migration `V2__seed_threshold_config.sql` seeds version 1. To roll out new thresholds, add a migration that inserts the next version and moves `is_active` to it in the same transaction; sessions record which version they were classified with in `threshold_version`. If no row is active the endpoint returns 404 `CONFIG_NOT_FOUND`.

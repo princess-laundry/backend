@@ -12,7 +12,7 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
+      - "127.0.0.1:${DB_HOST_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
@@ -39,7 +39,9 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    image: posture-server:dev
+    # Prebuilt by .github/workflows/image.yml, so `docker compose pull` skips
+    # the long C++ build. `docker compose build` still builds it locally.
+    image: ghcr.io/princess-laundry/backend:latest
     restart: unless-stopped
     depends_on:
       db:
@@ -80,6 +82,18 @@ services:
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./docs/openapi.yaml:/srv/docs/openapi.yaml:ro
+
+  # Temporary public HTTPS address for testing the Android app, which only
+  # talks to HTTPS servers. Off by default; start with --profile tunnel. The
+  # address is printed in `docker compose logs tunnel` and changes on restart.
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.1
+    profiles: [tunnel]
+    restart: unless-stopped
+    depends_on:
+      nginx:
+        condition: service_started
+    command: tunnel --no-autoupdate --url http://nginx:80
 
 volumes:
   db-data:

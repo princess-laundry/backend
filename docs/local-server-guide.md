@@ -147,8 +147,8 @@ docker compose exec db psql -U posture -d posture -c "SELECT id, started_at, stu
 ## 참고: 앱과 서버의 약속
 
 1. 기기 인증 요청의 `device_uuid`, 응답의 `access_token` 이름을 서버가 그대로 지원합니다.
-2. 서버의 기본 판정값은 앱 초기값과 같습니다 (`version` 1, `t1_ratio` 0.35, `t2_angle` 20, `stable_sec` 2, `analysis_fps` 5).
+2. 서버의 판정값은 1차 촬영 결과로 정한 `version` 2입니다 (`t2_angle` 15, `stable_sec` 2, `analysis_fps` 5). 최종 판정기는 골반→귀 기울기(`t2_angle`)로 판정하고, `t1_ratio`(0.35)는 판정에 쓰지 않습니다. 업로드할 때 `threshold_version`은 `GET /config`로 받은 2를 보내면 됩니다.
 3. 같은 `client_session_id`로 다시 올리면 200과 기존 `session_id`를 돌려주므로 재전송해도 중복 저장되지 않습니다.
 4. `DELETE /users/me`는 204를 돌려주고, 그 사용자의 세션, 구간, 통계, 설정을 모두 지웁니다.
-5. 개인 캘리브레이션: `GET /config`에 Δ 임계값 `t1_delta`(0.15), `t2_delta`(12)가 들어 있고, 5초 기준 자세는 `PUT /users/me/settings`의 `calib_ratio`(= `Calibration.headRatio`), `calib_angle`(= `Calibration.torsoAngle`)로 백업, `GET`으로 복원합니다.
+5. 개인 캘리브레이션은 쓰지 않기로 해서 `GET /config`의 `t1_delta`, `t2_delta`는 `null`입니다. 앱은 무시하면 됩니다. 나중에 다시 쓰게 되면 `GET/PUT /users/me/settings`로 기준 자세를 백업할 수 있게 서버는 준비돼 있습니다.
 6. 전체 API 형식은 Swagger(http://localhost:8080/docs/)를 기준으로 합니다.

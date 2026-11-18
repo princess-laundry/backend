@@ -172,10 +172,10 @@ curl -s http://localhost:8080/api/v1/config -H "Authorization: Bearer $TOKEN"
 ```
 
 ```json
-{"analysis_fps":5,"stable_sec":2.0,"t1_delta":0.15,"t1_ratio":0.35,"t2_angle":20.0,"t2_delta":12.0,"version":1}
+{"analysis_fps":5,"stable_sec":2.0,"t1_delta":null,"t1_ratio":0.35,"t2_angle":15.0,"t2_delta":null,"version":2}
 ```
 
-Returns the row of `threshold_configs` with `is_active = true`. Migration `V2__seed_threshold_config.sql` seeds version 1. To roll out new thresholds, add a migration that inserts the next version and moves `is_active` to it in the same transaction; sessions record which version they were classified with in `threshold_version`. If no row is active the endpoint returns 404 `CONFIG_NOT_FOUND`. `t1_delta` and `t2_delta` (migration V3) are the thresholds the app uses after a user's 5 second personal calibration; `null` means the app's built in values. A CHECK constraint keeps every threshold inside the ranges the app accepts, since the app refuses to build its estimator from anything else.
+Returns the row of `threshold_configs` with `is_active = true`. Migration `V2__seed_threshold_config.sql` seeds version 1, and `V4__threshold_v2.sql` adds version 2 (from the first recording round) and makes it active. The final estimator judges by the pelvis to ear angle `t2_angle`; `t1_ratio` is kept only because the column is required. To roll out new thresholds, add a migration that inserts the next version and moves `is_active` to it in the same transaction; sessions record which version they were classified with in `threshold_version`. If no row is active the endpoint returns 404 `CONFIG_NOT_FOUND`. `t1_delta` and `t2_delta` (migration V3) are thresholds for personal calibration, which the team decided not to use for now, so version 2 leaves them `null` and the app uses its built in values. A CHECK constraint keeps every threshold inside the ranges the app accepts, since the app refuses to build its estimator from anything else.
 
 ### Sessions
 

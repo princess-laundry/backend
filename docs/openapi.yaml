@@ -546,15 +546,15 @@ components:
       properties:
         version:
           type: integer
-          example: 1
+          example: 2
         t1_ratio:
           type: number
-          description: Forward head ratio above which a frame counts as FHP.
+          description: Kept for compatibility; the current estimator does not judge by it.
           example: 0.35
         t2_angle:
           type: number
-          description: Torso lean angle in degrees above which a frame counts as LEAN.
-          example: 20.0
+          description: Angle in degrees of the pelvis to ear line beyond which a frame counts as FHP.
+          example: 15.0
         stable_sec:
           type: number
           description: How long a state must hold before it is confirmed.

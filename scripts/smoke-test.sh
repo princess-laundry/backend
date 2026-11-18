@@ -325,8 +325,8 @@ expect "stats without range" 400 "$(request "$TOKEN" GET /stats/daily)"
 check_stats "after rejected requests" '[3, 7]'
 
 echo "checking calibration thresholds and settings"
-expect "config serves calibration thresholds" "true true" \
-    "$(request "$TOKEN" GET /config >/dev/null; body '"\(.t1_delta == 0.15) \(.t2_delta == 12)"')"
+expect "active config is version 2 with null calibration thresholds" "2 true null null" \
+    "$(request "$TOKEN" GET /config >/dev/null; body '"\(.version) \(.t2_angle == 15) \(.t1_delta) \(.t2_delta)"')"
 
 SETTINGS_TOKEN=$(sign_in)
 expect "settings before any save" "200 SOUND null null null" \

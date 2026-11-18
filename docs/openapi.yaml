@@ -270,6 +270,52 @@ paths:
         "503":
           $ref: "#/components/responses/DatabaseUnavailable"
 
+  /users/me/settings:
+    get:
+      tags: [Users]
+      summary: Get the caller's settings
+      description: |
+        The alert mode and the personal calibration baseline. A user who has
+        never saved settings gets `SOUND`, no baseline and `updated_at: null`.
+      operationId: getSettings
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/DatabaseUnavailable"
+    put:
+      tags: [Users]
+      summary: Replace the caller's settings
+      description: |
+        Send the whole object. To remove the calibration baseline, send both
+        `calib_ratio` and `calib_angle` as `null`.
+      operationId: putSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserSettingsUpdate"
+      responses:
+        "200":
+          description: The stored settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSettings"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/DatabaseUnavailable"
+
   /stats/daily:
     get:
       tags: [Stats]
@@ -420,6 +466,47 @@ components:
           type: string
           enum: [ok]
 
+    AlertMode:
+      type: string
+      description: How the app signals a posture change.
+      enum: [SOUND, VIBRATE, OFF]
+
+    UserSettingsUpdate:
+      type: object
+      required: [alert_mode, calib_ratio, calib_angle]
+      description: |
+        `calib_ratio` and `calib_angle` are the upright baseline measured by the
+        app's 5 second calibration (`Calibration.headRatio` and
+        `Calibration.torsoAngle`). Both are numbers or both are `null`.
+      properties:
+        alert_mode:
+          $ref: "#/components/schemas/AlertMode"
+        calib_ratio:
+          type: number
+          nullable: true
+          minimum: -2
+          maximum: 2
+          example: 0.12
+        calib_angle:
+          type: number
+          nullable: true
+          minimum: -90
+          maximum: 90
+          description: Degrees, signed (forward positive).
+          example: 3.5
+
+    UserSettings:
+      allOf:
+        - $ref: "#/components/schemas/UserSettingsUpdate"
+        - type: object
+          required: [updated_at]
+          properties:
+            updated_at:
+              type: string
+              format: date-time
+              nullable: true
+              description: When the settings were last saved, or `null` if never.
+
     DeviceAuthRequest:
       type: object
       description: Send the install id as `device_id` or `device_uuid` (the Android client uses the latter).
@@ -455,7 +542,7 @@ components:
 
     ThresholdConfig:
       type: object
-      required: [version, t1_ratio, t2_angle, stable_sec, analysis_fps]
+      required: [version, t1_ratio, t2_angle, stable_sec, analysis_fps, t1_delta, t2_delta]
       properties:
         version:
           type: integer
@@ -476,6 +563,26 @@ components:
           type: integer
           description: Frames per second the app should analyse.
           example: 5
+        t1_delta:
+          type: number
+          nullable: true
+          minimum: 0.01
+          maximum: 2.0
+          description: |
+            With personal calibration: how far the head ratio may rise above
+            the user's baseline before a frame counts as FHP. `null` means the
+            app uses its built in value.
+          example: 0.15
+        t2_delta:
+          type: number
+          nullable: true
+          minimum: 1.0
+          maximum: 89.0
+          description: |
+            With personal calibration: how many degrees the torso angle may
+            rise above the user's baseline before a frame counts as LEAN.
+            `null` means the app uses its built in value.
+          example: 12.0
 
     PostureState:
       type: string

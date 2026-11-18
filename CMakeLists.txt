@@ -19,6 +19,7 @@ add_library(posture_core STATIC
     src/auth/TokenService.cc
     src/config/AppConfig.cc
     src/sessions/SessionUpload.cc
+    src/settings/UserSettings.cc
     src/stats/DailyStats.cc
     src/time/IsoTime.cc
 )
@@ -58,6 +59,7 @@ if(BUILD_TESTING)
         tests/DeviceIdTest.cc
         tests/IsoTimeTest.cc
         tests/SessionUploadTest.cc
+        tests/UserSettingsTest.cc
         tests/TokenServiceTest.cc
     )
     # jwt-cpp is linked directly so tests can craft tokens the service would

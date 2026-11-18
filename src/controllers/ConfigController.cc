@@ -17,8 +17,8 @@ void ConfigController::active(
 
     auto db = drogon::app().getDbClient();
     db->execSqlAsync(
-        "SELECT version, t1_ratio, t2_angle, stable_sec, analysis_fps "
-        "FROM threshold_configs WHERE is_active",
+        "SELECT version, t1_ratio, t2_angle, stable_sec, analysis_fps, "
+        "t1_delta, t2_delta FROM threshold_configs WHERE is_active",
         [respond](const drogon::orm::Result &result) {
             if (result.empty())
             {
@@ -37,6 +37,14 @@ void ConfigController::active(
             body["t2_angle"] = row["t2_angle"].as<double>();
             body["stable_sec"] = row["stable_sec"].as<double>();
             body["analysis_fps"] = row["analysis_fps"].as<int>();
+            // Personal calibration thresholds; null tells the app to use its
+            // built in values.
+            for (const char *column : {"t1_delta", "t2_delta"})
+            {
+                body[column] = row[column].isNull()
+                                   ? Json::Value()
+                                   : Json::Value(row[column].as<double>());
+            }
             (*respond)(drogon::HttpResponse::newHttpJsonResponse(body));
         },
         [respond](const drogon::orm::DrogonDbException &e) {

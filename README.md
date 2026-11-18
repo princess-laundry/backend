@@ -146,6 +146,8 @@ All endpoints are under `/api/v1`. Requests and responses are UTF-8 JSON, timest
 | DELETE | `/api/v1/sessions/{id}` | Bearer | Implemented |
 | GET | `/api/v1/stats/daily?from=YYYY-MM-DD&to=YYYY-MM-DD` | Bearer | Implemented |
 | DELETE | `/api/v1/users/me` | Bearer | Implemented |
+| GET | `/api/v1/users/me/settings` | Bearer | Implemented |
+| PUT | `/api/v1/users/me/settings` | Bearer | Implemented |
 
 ### Authentication
 
@@ -170,10 +172,10 @@ curl -s http://localhost:8080/api/v1/config -H "Authorization: Bearer $TOKEN"
 ```
 
 ```json
-{"analysis_fps":5,"stable_sec":2.0,"t1_ratio":0.35,"t2_angle":20.0,"version":1}
+{"analysis_fps":5,"stable_sec":2.0,"t1_delta":0.15,"t1_ratio":0.35,"t2_angle":20.0,"t2_delta":12.0,"version":1}
 ```
 
-Returns the row of `threshold_configs` with `is_active = true`. Migration `V2__seed_threshold_config.sql` seeds version 1. To roll out new thresholds, add a migration that inserts the next version and moves `is_active` to it in the same transaction; sessions record which version they were classified with in `threshold_version`. If no row is active the endpoint returns 404 `CONFIG_NOT_FOUND`.
+Returns the row of `threshold_configs` with `is_active = true`. Migration `V2__seed_threshold_config.sql` seeds version 1. To roll out new thresholds, add a migration that inserts the next version and moves `is_active` to it in the same transaction; sessions record which version they were classified with in `threshold_version`. If no row is active the endpoint returns 404 `CONFIG_NOT_FOUND`. `t1_delta` and `t2_delta` (migration V3) are the thresholds the app uses after a user's 5 second personal calibration; `null` means the app's built in values. A CHECK constraint keeps every threshold inside the ranges the app accepts, since the app refuses to build its estimator from anything else.
 
 ### Sessions
 

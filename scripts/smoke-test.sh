@@ -5,8 +5,9 @@
 # uploaded payloads. The samples include a sequential retry, one session sent
 # five times concurrently, one that crosses Seoul midnight, one written in
 # UTC that falls on the next Seoul day, and days with no classified posture
-# time. It also covers listing, detail, delete, ownership and the main
-# validation errors.
+# time. It also covers listing, detail, delete, ownership, the main
+# validation errors, calibration thresholds, user settings and account
+# deletion.
 #
 # Usage: scripts/smoke-test.sh [base_url]
 # The base URL defaults to http://localhost:8080. Requires bash, curl and jq.
@@ -322,6 +323,34 @@ expect "stats range of 367 days" 400 "$(request "$TOKEN" GET '/stats/daily?from=
 expect "stats range of 366 days" 200 "$(request "$TOKEN" GET '/stats/daily?from=2026-01-01&to=2027-01-01')"
 expect "stats without range" 400 "$(request "$TOKEN" GET /stats/daily)"
 check_stats "after rejected requests" '[3, 7]'
+
+echo "checking calibration thresholds and settings"
+expect "config serves calibration thresholds" "true true" \
+    "$(request "$TOKEN" GET /config >/dev/null; body '"\(.t1_delta == 0.15) \(.t2_delta == 12)"')"
+
+SETTINGS_TOKEN=$(sign_in)
+expect "settings before any save" "200 SOUND null null null" \
+    "$(request "$SETTINGS_TOKEN" GET /users/me/settings) $(body '"\(.alert_mode) \(.calib_ratio) \(.calib_angle) \(.updated_at)"')"
+expect "save settings with a baseline" "200 VIBRATE 0.12 -3.5" \
+    "$(request "$SETTINGS_TOKEN" PUT /users/me/settings '{"alert_mode":"VIBRATE","calib_ratio":0.12,"calib_angle":-3.5}') $(body '"\(.alert_mode) \(.calib_ratio) \(.calib_angle)"')"
+expect "saved settings read back" "200 VIBRATE 0.12 -3.5 true" \
+    "$(request "$SETTINGS_TOKEN" GET /users/me/settings) $(body '"\(.alert_mode) \(.calib_ratio) \(.calib_angle) \(.updated_at | test("\\+09:00$"))"')"
+expect "clear the baseline" "200 OFF null null" \
+    "$(request "$SETTINGS_TOKEN" PUT /users/me/settings '{"alert_mode":"OFF","calib_ratio":null,"calib_angle":null}') $(body '"\(.alert_mode) \(.calib_ratio) \(.calib_angle)"')"
+expect "half a baseline" "400 INVALID_REQUEST" \
+    "$(request "$SETTINGS_TOKEN" PUT /users/me/settings '{"alert_mode":"OFF","calib_ratio":0.1,"calib_angle":null}') $(body .error.code)"
+expect "unknown alert mode" "400 INVALID_REQUEST" \
+    "$(request "$SETTINGS_TOKEN" PUT /users/me/settings '{"alert_mode":"LOUD","calib_ratio":null,"calib_angle":null}') $(body .error.code)"
+expect "settings without token" 401 "$(request "" GET /users/me/settings)"
+expect "other users keep default settings" "200 SOUND" \
+    "$(request "$OTHER_TOKEN" GET /users/me/settings) $(body .alert_mode)"
+
+expect "delete the account" 204 "$(request "$SETTINGS_TOKEN" DELETE /users/me)"
+expect "settings after account delete" "401 UNAUTHORIZED" \
+    "$(request "$SETTINGS_TOKEN" GET /users/me/settings) $(body .error.code)"
+expect "save settings after account delete" 401 \
+    "$(request "$SETTINGS_TOKEN" PUT /users/me/settings '{"alert_mode":"OFF","calib_ratio":null,"calib_angle":null}')"
+expect "deleting again still succeeds" 204 "$(request "$SETTINGS_TOKEN" DELETE /users/me)"
 
 echo
 if [ "$failures" -eq 0 ]; then

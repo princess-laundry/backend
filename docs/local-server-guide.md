@@ -150,4 +150,5 @@ docker compose exec db psql -U posture -d posture -c "SELECT id, started_at, stu
 2. 서버의 기본 판정값은 앱 초기값과 같습니다 (`version` 1, `t1_ratio` 0.35, `t2_angle` 20, `stable_sec` 2, `analysis_fps` 5).
 3. 같은 `client_session_id`로 다시 올리면 200과 기존 `session_id`를 돌려주므로 재전송해도 중복 저장되지 않습니다.
 4. `DELETE /users/me`는 204를 돌려주고, 그 사용자의 세션, 구간, 통계, 설정을 모두 지웁니다.
-5. 전체 API 형식은 Swagger(http://localhost:8080/docs/)를 기준으로 합니다.
+5. 개인 캘리브레이션: `GET /config`에 Δ 임계값 `t1_delta`(0.15), `t2_delta`(12)가 들어 있고, 5초 기준 자세는 `PUT /users/me/settings`의 `calib_ratio`(= `Calibration.headRatio`), `calib_angle`(= `Calibration.torsoAngle`)로 백업, `GET`으로 복원합니다.
+6. 전체 API 형식은 Swagger(http://localhost:8080/docs/)를 기준으로 합니다.
